@@ -31,7 +31,6 @@ localize() {
                 "invalid_choice") echo "Invalid choice, try again" ;;
                 "install_path") echo "Enter installation path [/opt/torrserver]: " ;;
                 "service_name") echo "Enter service name [torrserver]: " ;;
-                "enter_ip") echo "Enter IP address [0.0.0.0]: " ;;
                 "enter_port") echo "Enter port [8090]: " ;;
                 "port_range") echo "Port must be between 1-65535" ;;
                 "unsupported_arch") echo "Unsupported architecture: $param" ;;
@@ -66,6 +65,7 @@ localize() {
                 "move_error") echo "Failed to replace binary" ;;
                 "version_check_error") echo "Failed to check current version" ;;
                 "updated_to_version") echo "Successfully updated to version: $param" ;;
+                "enter_ip") echo "Enter IP address [default: $DEFAULT_IP]: " ;;
                 *) echo "$key" ;;
             esac
             ;;
@@ -80,7 +80,6 @@ localize() {
                 "invalid_choice") echo "Неверный выбор, попробуйте снова" ;;
                 "install_path") echo "Введите путь установки [/opt/torrserver]: " ;;
                 "service_name") echo "Введите имя сервиса [torrserver]: " ;;
-                "enter_ip") echo "Введите IP-адрес [0.0.0.0]: " ;;
                 "enter_port") echo "Введите порт [8090]: " ;;
                 "port_range") echo "Порт должен быть числом 1-65535" ;;
                 "unsupported_arch") echo "Неподдерживаемая архитектура: $param" ;;
@@ -115,10 +114,25 @@ localize() {
                 "move_error") echo "Не удалось заменить бинарный файл" ;;
                 "version_check_error") echo "Ошибка проверки текущей версии" ;;
                 "updated_to_version") echo "Успешно обновлено до версии: $param" ;;
+                "enter_ip") echo "Введите IP-адрес [по умолчанию: $DEFAULT_IP]: " ;;
                 *) echo "$key" ;;
             esac
             ;;
     esac
+}
+
+# Автоопределение IP роутера
+get_default_lan_ip() {
+    # Пробуем получить IP через uci
+    local lan_ip=$(uci -q get network.lan.ipaddr)
+
+    # Если uci не сработал, пробуем ifconfig
+    if [ -z "$lan_ip" ]; then
+        lan_ip=$(ifconfig br-lan 2>/dev/null | awk '/inet addr/{print substr($2,6)}')
+    fi
+
+    # Если и это не сработало, используем стандартный для OpenWrt
+    echo "${lan_ip:-192.168.1.1}"
 }
 
 # Цвета для вывода
@@ -307,10 +321,13 @@ path_settings() {
 
 # Настройки сервера
 server_settings() {
+    # Автоопределение IP
+    DEFAULT_IP=$(get_default_lan_ip)
+
     while :; do
-        printf "$(localize "enter_ip")"
+        printf "$(localize "enter_ip")" "$DEFAULT_IP"
         read -r IP
-        IP="${IP:-0.0.0.0}"
+        IP="${IP:-$DEFAULT_IP}"
         if validate_ip "$IP"; then
             break
         else
