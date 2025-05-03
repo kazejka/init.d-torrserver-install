@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# Цвета для вывода
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
 # Инициализация языковых переменных
 init_language() {
     printf "Выберите язык / Select language:\n"
@@ -31,6 +37,7 @@ localize() {
                 "invalid_choice") echo "Invalid choice, try again" ;;
                 "install_path") echo "Enter installation path [/opt/torrserver]: " ;;
                 "service_name") echo "Enter service name [torrserver]: " ;;
+                "enter_ip") echo "Enter IP address [default: $DEFAULT_IP]: " ;;
                 "enter_port") echo "Enter port [8090]: " ;;
                 "port_range") echo "Port must be between 1-65535" ;;
                 "unsupported_arch") echo "Unsupported architecture: $param" ;;
@@ -65,7 +72,6 @@ localize() {
                 "move_error") echo "Failed to replace binary" ;;
                 "version_check_error") echo "Failed to check current version" ;;
                 "updated_to_version") echo "Successfully updated to version: $param" ;;
-                "enter_ip") echo "Enter IP address [default: $DEFAULT_IP]: " ;;
                 *) echo "$key" ;;
             esac
             ;;
@@ -80,6 +86,7 @@ localize() {
                 "invalid_choice") echo "Неверный выбор, попробуйте снова" ;;
                 "install_path") echo "Введите путь установки [/opt/torrserver]: " ;;
                 "service_name") echo "Введите имя сервиса [torrserver]: " ;;
+                "enter_ip") echo "Введите IP-адрес [по умолчанию: $DEFAULT_IP]: " ;;
                 "enter_port") echo "Введите порт [8090]: " ;;
                 "port_range") echo "Порт должен быть числом 1-65535" ;;
                 "unsupported_arch") echo "Неподдерживаемая архитектура: $param" ;;
@@ -114,34 +121,12 @@ localize() {
                 "move_error") echo "Не удалось заменить бинарный файл" ;;
                 "version_check_error") echo "Ошибка проверки текущей версии" ;;
                 "updated_to_version") echo "Успешно обновлено до версии: $param" ;;
-                "enter_ip") echo "Введите IP-адрес [по умолчанию: $DEFAULT_IP]: " ;;
                 *) echo "$key" ;;
             esac
             ;;
     esac
 }
 
-# Автоопределение IP роутера
-get_default_lan_ip() {
-    # Пробуем получить IP через uci
-    local lan_ip=$(uci -q get network.lan.ipaddr)
-
-    # Если uci не сработал, пробуем ifconfig
-    if [ -z "$lan_ip" ]; then
-        lan_ip=$(ifconfig br-lan 2>/dev/null | awk '/inet addr/{print substr($2,6)}')
-    fi
-
-    # Если и это не сработало, используем стандартный для OpenWrt
-    echo "${lan_ip:-192.168.1.1}"
-}
-
-# Цвета для вывода
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m'
-
-# Функции вывода
 error() {
     local msg
     if [ $# -gt 1 ]; then
@@ -173,22 +158,48 @@ success() {
     printf "${GREEN}%s${NC}\n" "$msg"
 }
 
-# Инициализация языка
-init_language
+# Автоопределение IP роутера
+get_default_lan_ip() {
+    # Пробуем получить IP через uci
+    local lan_ip=$(uci -q get network.lan.ipaddr)
+
+    # Если uci не сработал, пробуем ifconfig
+    if [ -z "$lan_ip" ]; then
+        lan_ip=$(ifconfig br-lan 2>/dev/null | awk '/inet addr/{print substr($2,6)}')
+    fi
+
+    # Если и это не сработало, используем стандартный для OpenWrt
+    echo "${lan_ip:-192.168.1.1}"
+}
 
 # Определение архитектуры
-ARCH=$(case $(uname -m) in
-    x86_64|amd64) printf "amd64\n" ;;
-    i[3456]86|x86) printf "386\n" ;;
-    aarch64|arm64) printf "arm64\n" ;;
-    armv7*|arm-7|armhf) printf "arm7\n" ;;
-    armv[56]*|arm-[56]) printf "arm5\n" ;;
-    mips) printf "mips\n" ;;
-    mips64) printf "mips64\n" ;;
-    mips64el) printf "mips64le\n" ;;
-    mipsel) printf "mipsle\n" ;;
-    *) error "unsupported_arch" "$(uname -m)" ;;
-esac)
+get_architecture() {
+    case $(uname -m) in
+        x86_64|amd64) printf "amd64\n" ;;
+        i[3456]86|x86) printf "386\n" ;;
+        aarch64|arm64) printf "arm64\n" ;;
+        armv7*|arm-7|armhf) printf "arm7\n" ;;
+        armv[56]*|arm-[56]) printf "arm5\n" ;;
+        mips) printf "mips\n" ;;
+        mips64) printf "mips64\n" ;;
+        mips64el) printf "mips64le\n" ;;
+        mipsel) printf "mipsle\n" ;;
+        *) error "unsupported_arch" "$(uname -m)" ;;
+    esac
+}
+
+# Валидация IP-адреса
+validate_ip() {
+    ip="$1"
+    if printf "%s" "$ip" | grep -Eq '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?).){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'; then
+        return 0
+    fi
+    if printf "%s" "$ip" | grep -Eq '^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4})$'; then
+        return 0
+    fi
+    error "invalid_ip" "$ip"
+    return 1
+}
 
 # Получение последней версии
 get_latest_version() {
@@ -206,19 +217,6 @@ get_current_version() {
     ver=$("$INSTALL_DIR/$SERVICE_NAME" --version 2>&1 | tail -n 1 | sed -n 's/.*TorrServer \([^ ]*\).*/\1/p')
     [ -z "$ver" ] && return 1
     printf "%s\n" "$ver"
-}
-
-# Валидация IP-адреса
-validate_ip() {
-    ip="$1"
-    if printf "%s" "$ip" | grep -Eq '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?).){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'; then
-        return 0
-    fi
-    if printf "%s" "$ip" | grep -Eq '^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4})$'; then
-        return 0
-    fi
-    error "invalid_ip" "$ip"
-    return 1
 }
 
 # Создание директорий
@@ -467,10 +465,13 @@ confirm_return() {
     done
 }
 
-# Основной цикл
+# Инициализация
 set -o nounset
 set -o errexit
+init_language
+ARCH=$(get_architecture)
 
+# Главный цикл
 while :; do
     show_menu
     while :; do
