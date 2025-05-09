@@ -499,8 +499,7 @@ confirm_return() {
 }
 
 # Инициализация
-set -o nounset
-set -o errexit
+set -eu
 init_language
 ARCH=$(get_architecture)
 
