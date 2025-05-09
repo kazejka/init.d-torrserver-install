@@ -72,6 +72,12 @@ localize() {
                 "move_error") echo "Failed to replace binary" ;;
                 "version_check_error") echo "Failed to check current version" ;;
                 "updated_to_version") echo "Successfully updated to version: $param" ;;
+                "upx_compressed") echo "File compressed with UPX" ;;
+                "upx_failed") echo "UPX compression failed, using original file" ;;
+                "upx_installing") echo "Installing UPX for compression" ;;
+                "upx_installed_compressed") echo "UPX installed and file compressed" ;;
+                "upx_installed_failed") echo "UPX installed but compression failed" ;;
+                "upx_not_available") echo "UPX not available, using original file" ;;
                 *) echo "$key" ;;
             esac
             ;;
@@ -121,6 +127,12 @@ localize() {
                 "move_error") echo "Не удалось заменить бинарный файл" ;;
                 "version_check_error") echo "Ошибка проверки текущей версии" ;;
                 "updated_to_version") echo "Успешно обновлено до версии: $param" ;;
+                "upx_compressed") echo "Файл успешно сжат с помощью UPX" ;;
+                "upx_failed") echo "Ошибка сжатия UPX, используется оригинальный файл" ;;
+                "upx_installing") echo "Установка UPX для сжатия бинарника..." ;;
+                "upx_installed_compressed") echo "UPX установлен и файл успешно сжат" ;;
+                "upx_installed_failed") echo "UPX установлен, но сжатие не удалось" ;;
+                "upx_not_available") echo "UPX недоступен, используется оригинальный файл" ;;
                 *) echo "$key" ;;
             esac
             ;;
@@ -232,17 +244,17 @@ create_dirs() {
 download_torrserver() {
     url="https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-$ARCH"
     info "downloading" "$ARCH"
-    
+
     # Создаем временный файл
     temp_file="${INSTALL_DIR}/torrserver.tmp.$$"
-    
+
     # Скачиваем с проверкой ошибок
     if ! wget --timeout=30 -q -O "$temp_file" "$url"; then
         [ -f "$temp_file" ] && rm -f "$temp_file"
         error "download_error" ""
         return 1
     fi
-    
+
     # Останавливаем сервис если он существует
     if [ -f "/etc/init.d/$SERVICE_NAME" ]; then
         if ! "/etc/init.d/$SERVICE_NAME" stop >/dev/null 2>&1; then
@@ -252,17 +264,38 @@ download_torrserver() {
         fi
         sleep 1
     fi
-    
-    # Устанавливаем новые права
+
+    # Устанавливаем права
     chmod +x "$temp_file"
     
+    # Пытаемся сжать бинарник через UPX если доступно
+    if command -v upx >/dev/null 2>&1; then
+        if upx --lzma --best "$temp_file" >/dev/null 2>&1; then
+            info "upx_compressed" ""
+        else
+            info "upx_failed" ""
+        fi
+    else
+        # Пробуем установить UPX если не установлен
+        info "upx_installing" ""
+        if opkg update >/dev/null 2>&1 && opkg install upx >/dev/null 2>&1; then
+            if upx --lzma --best "$temp_file" >/dev/null 2>&1; then
+                info "upx_installed_compressed" ""
+            else
+                info "upx_installed_failed" ""
+            fi
+        else
+            info "upx_not_available" ""
+        fi
+    fi
+
     # Атомарная замена файла
     if ! mv -f "$temp_file" "${INSTALL_DIR}/${SERVICE_NAME}"; then
         rm -f "$temp_file"
         error "move_error" ""
         return 1
     fi
-    
+
     return 0
 }
 
